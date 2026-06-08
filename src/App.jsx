@@ -43,24 +43,38 @@ function monthLabel(val) {
   return m ? m.label : val;
 }
 
-function nextDueLabel(flatCfg, paidPeriods) {
+function nextDueLabel(flatCfg, paidPeriods, fyConfigMap) {
   if (!flatCfg) return { label: "—", status: "grey" };
 
   const today = new Date();
 
   if (flatCfg.payment_type === "annual") {
-    const hasPaidFY2526 = paidPeriods.includes("FY2025-26");
-    const hasPaidFY2627 = paidPeriods.includes("FY2026-27");
-    if (hasPaidFY2627) return { label: "FY2026-27 ✓", status: "green" };
-    if (hasPaidFY2526) {
-      // Due by 30 Jun 2026 for next FY
-      const dueDate = new Date("2027-06-30");
-      return { label: "Due by 30 Jun 2027", status: "green" };
+    // Check each FY from latest to earliest
+    const allFYs = Object.keys(fyConfigMap).sort().reverse();
+    for (const fy of allFYs) {
+      if (paidPeriods.includes(fy)) {
+        // Find next FY
+        const nextFY = allFYs.find(f => f > fy);
+        if (!nextFY) return { label: `${fy} ✓`, status: "green" };
+        const nextDue = fyConfigMap[nextFY]?.due_date;
+        const nextDueDate = nextDue ? new Date(nextDue) : null;
+        const daysUntil = nextDueDate ? Math.ceil((nextDueDate - today) / (1000 * 60 * 60 * 24)) : 999;
+        if (nextDueDate && today > nextDueDate) return { label: `${nextFY} overdue`, status: "red" };
+        if (daysUntil <= 30) return { label: `${nextFY} due soon`, status: "yellow" };
+        return { label: `${fy} ✓ — next ${nextFY}`, status: "green" };
+      }
     }
-    // Annual due 30 Jun 2026
-    const annualDue = new Date("2026-06-30");
-    if (today > annualDue) return { label: "Overdue (FY2025-26)", status: "red" };
-    return { label: "Due by 30 Jun 2026", status: "yellow" };
+    // Not paid any FY — find current FY due date
+    const currentFY = "FY2025-26";
+    const cfg = fyConfigMap[currentFY];
+    if (cfg) {
+      const dueDate = new Date(cfg.due_date);
+      const daysUntil = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+      if (today > dueDate) return { label: `Overdue (${currentFY})`, status: "red" };
+      if (daysUntil <= 30) return { label: `Due by ${new Date(cfg.due_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`, status: "yellow" };
+      return { label: `Due by ${new Date(cfg.due_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`, status: "yellow" };
+    }
+    return { label: "Not paid", status: "red" };
   }
 
   // Monthly payer
@@ -108,6 +122,7 @@ const statusColors = {
 export default function App() {
   const [entries, setEntries] = useState([]);
   const [flatConfig, setFlatConfig] = useState([]);
+  const [fyConfig, setFyConfig] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState("status");
@@ -130,12 +145,14 @@ export default function App() {
 
   async function loadAll() {
     setLoading(true);
-    const [entriesRes, configRes] = await Promise.all([
+    const [entriesRes, configRes, fyRes] = await Promise.all([
       supabase.from("entries").select("*").order("date", { ascending: false }).order("created_at", { ascending: false }),
-      supabase.from("flat_config").select("*")
+      supabase.from("flat_config").select("*"),
+      supabase.from("fy_config").select("*")
     ]);
     if (!entriesRes.error) setEntries(entriesRes.data || []);
     if (!configRes.error) setFlatConfig(configRes.data || []);
+    if (!fyRes.error) setFyConfig(fyRes.data || []);
     setLoading(false);
   }
 
@@ -224,6 +241,10 @@ export default function App() {
     }
   }
 
+  // Build fyConfigMap: { "FY2025-26": { due_date, demand_date }, ... }
+  const fyConfigMap = {};
+  fyConfig.forEach(f => { fyConfigMap[f.fy] = f; });
+
   // Build payment status per flat
   const flatStatusMap = {};
   FLATS.forEach(flat => {
@@ -231,7 +252,7 @@ export default function App() {
     const flatEntries = entries.filter(e => e.flat === flat && e.type === "in" && e.category === "Maintenance");
     const paidPeriods = flatEntries.map(e => e.period_covered).filter(Boolean);
     const totalPaid = flatEntries.reduce((s, e) => s + Number(e.amount), 0);
-    const due = nextDueLabel(cfg, paidPeriods);
+    const due = nextDueLabel(cfg, paidPeriods, fyConfigMap);
     flatStatusMap[flat] = { cfg, paidPeriods, totalPaid, due };
   });
 
