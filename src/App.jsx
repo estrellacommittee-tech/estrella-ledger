@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 
 const CATEGORIES_IN = ["Maintenance", "Parking Fee", "Club Fee", "NOC Fee", "Penalty", "Other Income"];
-const CATEGORIES_OUT = ["Security", "Housekeeping", "Electricity", "Water", "Repairs", "Gardener Salary", "Garden Expense", "Admin", "Other Expense"];
+const CATEGORIES_OUT = ["Security", "Housekeeping", "Electricity", "Water", "Repairs", "Lift AMC", "Gardener Salary", "Garden Expense", "Admin", "Other Expense"];
 
 const FLATS = ["TH12", "TH13", "TH14", "TH15", "TH16"].flatMap(tower =>
   [101, 102, 201, 202, 301, 302].map(unit => `${tower}-${unit}`)
